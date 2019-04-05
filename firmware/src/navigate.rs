@@ -1,4 +1,4 @@
-
+use std::f64;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use rand::Rng;
@@ -8,6 +8,161 @@ use crate::plan::MoveOptions;
 
 pub trait Navigate {
     fn navigate(&mut self, move_options: MoveOptions) -> [Option<Move>; 2];
+}
+
+pub struct Inteligate {
+    maze: [[Cell; 16]; 16],
+    current_cell: Cell,
+    current_direction: CardinalDirection
+}
+
+pub struct Cell {
+    row: usize,
+    col: usize,
+    weight: u16,
+}
+
+pub enum CardinalDirection {
+    North,
+    East,
+    South,
+    West
+}
+
+pub enum MoveDirection {
+    Forward,
+    Left,
+    Backward,
+    Right
+}
+
+impl Cell {
+    pub fn new(row: usize, col: usize, weight: u16) -> Cell {
+        Cell{row, col, weight}
+    }
+
+    pub fn best_move(forward_cell: Cell, left_cell: Cell, right_cell: Cell, backward_cell: Cell, move_options: MoveOptions) -> MoveDirection {
+        let fw = forward_cell.weight;
+        let lw = left_cell.weight;
+        let bw = backward_cell.weight;
+        let rw = right_cell.weight;
+
+        if move_options.forward && fw <= lw && fw <= bw && fw <= rw {
+            MoveDirection::Forward
+        }
+        else if move_options.left && lw <= fw && lw <= bw && lw <= rw {
+            MoveDirection::Left
+        }
+        else if move_options.right && rw <= fw && rw <= lw && rw <= bw {
+            MoveDirection::Right
+        }
+        else {
+            MoveDirection::Backward
+        }
+    }
+
+    pub fn calc_new_weight(current_cell: Cell, forward_cell: Cell, left_cell: Cell, right_cell: Cell, backward_cell: Cell, move_options: MoveOptions) -> u16 {
+        let cw = current_cell.weight;
+        let fw = forward_cell.weight;
+        let lw = left_cell.weight;
+        let bw = backward_cell.weight;
+        let rw = right_cell.weight;
+
+        // If path of dead-end path, 0xffff, else increment weight by 1
+        match (move_options.forward, move_options.left, move_options.right, fw, lw, rw) {
+            (true , true , true , 0xffff, 0xffff, 0xffff) => 0xffff,
+            (true , true , false, 0xffff, 0xffff, _     ) => 0xffff,
+            (true , false, true , 0xffff, _     , 0xffff) => 0xffff,
+            (false, true , true , _     , 0xffff, 0xffff) => 0xffff,
+            (false, false, true , _     , _     , 0xffff) => 0xffff,
+            (false, true , false, _     , 0xffff, _     ) => 0xffff,
+            (true , false, false, 0xffff, _     , _     ) => 0xffff,
+            (false, false, false, _     , _     , _     ) => 0xffff,
+            _ => cw + 1,
+        }
+    }
+}
+
+impl Inteligate {
+    pub fn new(maze: [[Cell; 16]; 16]) -> Inteligate {
+        for row in 0..15 {
+            for col in 0..15 {
+                let mut distance: u16 = 0;
+                distance = ((row as f64 - 2.0).powi(2) + (col as f64 - 2.0).powi(2)).sqrt();
+                maze[row][col] = Cell::new(row, col, distance);
+            }
+        }
+        let current_cell:Cell = Cell::new(0,0,maze[0][0].weight);
+        let current_direction = CardinalDirection::North;
+        Inteligate{maze, current_cell, current_direction}
+    }
+}
+
+impl Navigate for Inteligate {
+    fn navigate(&mut self, move_options: MoveOptions) -> [Option<Move>; 2] {
+        self.current_cell.weight += 1;
+        let current_cell = self.current_cell;
+        let current_direction = self.current_direction;
+
+        let (forward_cell, left_cell, right_cell, backward_cell): (Cell, Cell, Cell, Cell) = match current_direction {
+            North => {
+                (
+                    self.maze[current_cell.row+1][current_cell.col+0],
+                    self.maze[current_cell.row+0][current_cell.col-1],
+                    self.maze[current_cell.row+0][current_cell.col+1],
+                    self.maze[current_cell.row-1][current_cell.col+0],
+                    )
+            },
+            East => {
+                (
+                    self.maze[current_cell.row+0][current_cell.col+1],
+                    self.maze[current_cell.row+1][current_cell.col+0],
+                    self.maze[current_cell.row-1][current_cell.col+0],
+                    self.maze[current_cell.row+0][current_cell.col-1],
+                    )
+            },
+            South => {
+                (
+                    self.maze[current_cell.row-1][current_cell.col+0],
+                    self.maze[current_cell.row+0][current_cell.col+1],
+                    self.maze[current_cell.row+0][current_cell.col-1],
+                    self.maze[current_cell.row+1][current_cell.col+0],
+                    )
+            },
+            West => {
+                (
+                    self.maze[current_cell.row+0][current_cell.col-1],
+                    self.maze[current_cell.row-1][current_cell.col+0],
+                    self.maze[current_cell.row+1][current_cell.col+0],
+                    self.maze[current_cell.row+0][current_cell.col+1],
+                    )
+            },
+        };
+
+        let nextMove = Cell::best_move(forward_cell, right_cell, backward_cell, left_cell, move_options);
+
+        self.maze[current_cell.row][current_cell.col].weight = Cell::calc_new_weight(current_cell, forward_cell, right_cell, backward_cell, left_cell, move_options);
+
+        match nextMove {
+            Forward => {
+                self.current_cell = forward_cell;
+                [Some(Move::Forward), None]
+            },
+            Left => {
+                self.current_cell = left_cell;
+                [Some(Move::TurnLeft), Some(Move::Forward)]
+            },
+            Backward => {
+                self.current_cell = backward_cell;
+                [Some(Move::TurnAround), Some(Move::Forward)]
+            },
+            Right => {
+                self.current_cell = right_cell;
+                [Some(Move::TurnRight), Some(Move::Forward)]
+            },
+            _ => [Some(Move::TurnAround), Some(Move::TurnAround)], // Something went wrong
+        }
+    }
 }
 
 pub struct RandomNavigate {
