@@ -61,8 +61,8 @@ impl Cell {
         }
     }
 
-    pub fn calc_new_weight(current_cell: Cell, forward_cell: Cell, left_cell: Cell, right_cell: Cell, backward_cell: Cell, move_options: MoveOptions) -> u16 {
-        let cw = current_cell.weight;
+    pub fn calc_new_weight(self, forward_cell: Cell, left_cell: Cell, right_cell: Cell, backward_cell: Cell, move_options: MoveOptions) -> u16 {
+        let cw = self.weight;
         let fw = forward_cell.weight;
         let lw = left_cell.weight;
         let bw = backward_cell.weight;
@@ -141,7 +141,7 @@ impl Navigate for Inteligate {
 
         let nextMove = Cell::best_move(forward_cell, right_cell, backward_cell, left_cell, move_options);
 
-        self.maze[current_cell.row][current_cell.col].weight = Cell::calc_new_weight(current_cell, forward_cell, right_cell, backward_cell, left_cell, move_options);
+        self.maze[current_cell.row][current_cell.col].weight = current_cell.calc_new_weight(forward_cell, right_cell, backward_cell, left_cell, move_options);
 
         match nextMove {
             Forward => {
