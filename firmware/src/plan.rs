@@ -103,8 +103,7 @@ where
 
                     Move::TurnAround => {
                         self.control.spin(ticks_per_spin / 2.0);
-                        self.direction().turn_right();
-                        self.direction().turn_right();
+                        self.direction = self.direction().turn_right().turn_right();
                     }
 
                     Move::Forward => {
@@ -190,6 +189,8 @@ where
 
         if command == Some(self.control.keyword_command()) {
             self.control.handle_command(uart, args);
+        } else if command == Some(self.navigate.keyword_command()) {
+            self.navigate.handle_command(uart, args);
         } else {
             match command {
                 Some("left") => self.add_moves(&[Some(Move::TurnLeft)]),
