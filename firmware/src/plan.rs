@@ -8,8 +8,8 @@ use crate::control::Control;
 
 use crate::navigate::Navigate;
 
-use crate::uart::Uart;
 use crate::uart::Command;
+use crate::uart::Uart;
 
 #[derive(Copy, Clone)]
 pub enum Move {
@@ -26,24 +26,61 @@ pub struct MoveOptions {
     pub right: bool,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+impl Direction {
+    pub fn turn_left(self) -> Direction {
+        match self {
+            Direction::Up => Direction::Left,
+            Direction::Left => Direction::Down,
+            Direction::Down => Direction::Right,
+            Direction::Right => Direction::Up,
+        }
+    }
+
+    pub fn turn_right(self) -> Direction {
+        match self {
+            Direction::Up => Direction::Right,
+            Direction::Right => Direction::Down,
+            Direction::Down => Direction::Left,
+            Direction::Left => Direction::Up,
+        }
+    }
+}
+
+
 pub struct Plan<N>
-where N: Navigate
+where
+    N: Navigate,
 {
     control: Control,
     move_buffer: ArrayVec<[Move; 32]>,
     going: bool,
     navigate: N,
+    x_pos: i32,
+    y_pos: i32,
+    direction: Direction,
 }
 
 impl<N> Plan<N>
-where N: Navigate
+where
+    N: Navigate,
 {
     pub fn new(control: Control, navigate: N) -> Plan<N> {
         Plan {
             control,
             move_buffer: ArrayVec::new(),
             going: false,
-            navigate
+            navigate,
+            x_pos: 0,
+            y_pos: 0,
+            direction: Direction::Up,
         }
     }
 
@@ -53,21 +90,46 @@ where N: Navigate
                 let ticks_per_spin = self.control.bot().config.ticks_per_spin;
                 let ticks_per_cell = self.control.bot().config.ticks_per_cell;
                 match next_move {
-                    Move::TurnLeft => self.control.spin(-ticks_per_spin/4.0),
-                    Move::TurnRight => self.control.spin(ticks_per_spin/4.0),
-                    Move::TurnAround => self.control.spin(ticks_per_spin/2.0),
-                    Move::Forward => self.control.linear(ticks_per_cell),
+
+                    Move::TurnLeft => {
+                        self.control.spin(-ticks_per_spin / 4.0);
+                        self.direction = self.direction.turn_left();
+                    }
+
+                    Move::TurnRight => {
+                        self.control.spin(ticks_per_spin / 4.0);
+                        self.direction = self.direction.turn_right();
+                    }
+
+                    Move::TurnAround => {
+                        self.control.spin(ticks_per_spin / 2.0);
+                        self.direction().turn_right();
+                        self.direction().turn_right();
+                    }
+
+                    Move::Forward => {
+                        self.control.linear(ticks_per_cell);
+                        let (dx, dy) = match self.direction {
+                            Direction::Up => (0, 1),
+                            Direction::Down => (0, -1),
+                            Direction::Left => (-1, 0),
+                            Direction::Right => (1, 0),
+                        };
+                        self.x_pos += dx;
+                        self.y_pos += dy;
+                    }
                 }
             } else {
                 if self.going {
                     let threshold = self.control.bot().config.wall_threshold;
                     let move_options = MoveOptions {
                         left: self.control.bot().left_distance() > threshold,
-                        forward: self.control.bot().front_distance() > threshold,
+                        forward: self.control.bot().front_distance()
+                            > threshold,
                         right: self.control.bot().right_distance() > threshold,
                     };
 
-                    let next_moves = self.navigate.navigate(move_options);
+                    let next_moves = self.navigate.navigate(self.x_pos, self.y_pos, self.direction, move_options);
 
                     self.add_moves(&next_moves);
                 }
@@ -94,13 +156,26 @@ where N: Navigate
     }
 
     pub fn stop(&mut self) {
-        self.going  = false;
+        self.going = false;
         self.control.stop();
+    }
+
+    pub fn x_pos(&self) -> i32 {
+        self.x_pos
+    }
+
+    pub fn y_pos(&self) -> i32 {
+        self.y_pos
+    }
+
+    pub fn direction(&self) -> Direction {
+        self.direction
     }
 }
 
 impl<N> Command for Plan<N>
-where N: Navigate
+where
+    N: Navigate,
 {
     fn keyword_command(&self) -> &str {
         "plan"

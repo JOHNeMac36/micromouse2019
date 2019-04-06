@@ -1,219 +1,140 @@
-//use arrayvec::ArrayVec;
+use core::fmt::Write;
+
+use ignore_result::Ignore;
+
 use rand::rngs::SmallRng;
-use rand::SeedableRng;
 use rand::Rng;
+use rand::SeedableRng;
+
+use crate::plan::Direction;
 
 use crate::plan::Move;
 use crate::plan::MoveOptions;
 
-use ignore_result::Ignore;
-use core::fmt::Write;
 use crate::uart::Uart;
 use crate::uart::Command;
 
 pub trait Navigate: Command {
-    fn navigate(&mut self, move_options: MoveOptions) -> [Option<Move>; 2];
+    fn navigate(&mut self, x: i32, y: i32, dir: Direction, move_options: MoveOptions) -> [Option<Move>; 2];
 }
 
-pub struct Inteligate {
-    maze: [[Cell; 16]; 16],
-    current_cell: Cell,
-    current_direction: CardinalDirection,
+pub struct LessRandomNavigate {
+    rng: SmallRng,
+    cells: [[u8; 16]; 16],
 }
 
-#[derive(Copy,Clone)]
-pub struct Cell {
-    row: usize,
-    col: usize,
-    weight: u16,
-}
-
-pub enum CardinalDirection {
-    North,
-    East,
-    South,
-    West
-}
-
-pub enum MoveDirection {
-    Forward,
-    Left,
-    Backward,
-    Right,
-}
-
-impl Cell {
-    pub fn new(row: usize, col: usize, weight: u16) -> Cell {
-        Cell{row, col, weight}
-    }
-
-    pub fn invalid() -> Cell {
-        Cell::new(0xff, 0xff, 0xffff)
-    }
-
-    pub fn best_move(forward_cell: Cell, left_cell: Cell, right_cell: Cell, backward_cell: Cell, move_options: MoveOptions) -> MoveDirection {
-        let fw = forward_cell.weight;
-        let lw = left_cell.weight;
-        let bw = backward_cell.weight;
-        let rw = right_cell.weight;
-
-        if move_options.forward && fw <= lw && fw <= bw && fw <= rw {
-            MoveDirection::Forward
-        }
-        else if move_options.left && lw <= fw && lw <= bw && lw <= rw {
-            MoveDirection::Left
-        }
-        else if move_options.right && rw <= fw && rw <= lw && rw <= bw {
-            MoveDirection::Right
-        }
-        else {
-            MoveDirection::Backward
+impl LessRandomNavigate {
+    pub fn new(seed: [u8; 16]) -> RandomNavigate {
+        RandomNavigate {
+            rng: SmallRng::from_seed(seed),
         }
     }
 
-    pub fn calc_new_weight(self, forward_cell: Cell, left_cell: Cell, right_cell: Cell, move_options: MoveOptions) -> u16 {
-        let cw = self.weight;
-        let fw = forward_cell.weight;
-        let lw = left_cell.weight;
-        let rw = right_cell.weight;
+    fn get_cell(&self, x: i32, y: i32) -> u8 {
+        let x = if x < 0 { 0 } else if x > 15 { 15 } else { x } as usize;
+        let y = if y < 0 { 0 } else if y > 15 { 15 } else { y } as usize;
 
-        // If path of dead-end path, 0xffff, else increment weight by 1
-        match (move_options.forward, move_options.left, move_options.right, fw, lw, rw) {
-            (true , true , true , 0xffff, 0xffff, 0xffff) => 0xffff,
-            (true , true , false, 0xffff, 0xffff, _     ) => 0xffff,
-            (true , false, true , 0xffff, _     , 0xffff) => 0xffff,
-            (false, true , true , _     , 0xffff, 0xffff) => 0xffff,
-            (false, false, true , _     , _     , 0xffff) => 0xffff,
-            (false, true , false, _     , 0xffff, _     ) => 0xffff,
-            (true , false, false, 0xffff, _     , _     ) => 0xffff,
-            (false, false, false, _     , _     , _     ) => 0xffff,
-            _ => cw + 1,
-        }
+        self.cells[x][y]
     }
 }
 
-pub fn isqrt(num: u16) -> u16 {
-    let mut x = num;
-    if x == 0 || x == 1 {
-        x
-    }
-    else {
-        let mut result = 1;
-        while result <= x {
-            x = x + 1;
-            result = x * x;
-        }
-        x - 1
-    }
-}
+impl Navigate for LessRandomNavigate {
+    fn navigate(&mut self, x: i32, y: i32, d: Direction, move_options: MoveOptions) -> [Option<Move>; 2] {
 
-impl Inteligate {
-    pub fn new() -> Inteligate {
-        let mut maze: [[Cell; 16]; 16] = [[Cell::invalid(); 16]; 16];
-        for row in 0..15 {
-            for col in 0..15 {
-                let distance: u16 = isqrt((row - 4) * (row - 4) + (col - 4) * (col - 4));
-                maze[row as usize][col as usize] = Cell::new(row as usize, col as usize, distance);
+        let ux = if x < 0 { 0 } else if x > 15 { 15 } else { x } as usize;
+        let uy = if y < 0 { 0 } else if y > 15 { 15 } else { y } as usize;
+
+        if self.cells[ux][uy] < 255 {
+            self.cells[ux][uy] += 1;
+        }
+
+        let left_cell = match d {
+            Direction::Up => self.get_cell(x-1, y),
+            Direction::Down => self.get_cell(x+1, y),
+            Direction::Right => self.get_cell(x, y+1),
+            Direction::Left => self.get_cell(x, y-1),
+        };
+
+        let front_cell = match d {
+            Direction::Up => self.get_cell(x, y+1),
+            Direction::Down => self.get_cell(x, y-1),
+            Direction::Right => self.get_cell(x+1, y),
+            Direction::Left => self.get_cell(x-1, y),
+        };
+
+        let right_cell = match d {
+            Direction::Up => self.get_cell(x+1, y),
+            Direction::Down => self.get_cell(x-1, y),
+            Direction::Right => self.get_cell(x, y-1),
+            Direction::Left => self.get_cell(x, y+1),
+        };
+
+        if move_options.forward && front_cell <= left_cell && front_cell <= right_cell {
+            [Some(Move::Forward), None]
+        } else if move_options.left && left_cell <= front_cell && left_cell <= right_cell {
+            [Some(Move::TurnLeft), Some(Move::Forward)]
+        } else if move_options.right && right_cell <= front_cell && right_cell <= left_cell {
+            [Some(Move::TurnRight), Some(Move::Forward)]
+        } else {
+            [Some(Move::TurnAround), Some(Move::Forward)]
+        }
+
+        /*
+        match (move_options.left, move_options.forward, move_options.right) {
+            (true, true, true) => match self.rng.gen_range(0, 3) {
+                0 => [Some(Move::TurnLeft), Some(Move::Forward)],
+                1 => [Some(Move::TurnRight), Some(Move::Forward)],
+                _ => [Some(Move::Forward), None],
+            },
+
+            (true, false, true) => match self.rng.gen_range(0, 2) {
+                0 => [Some(Move::TurnLeft), Some(Move::Forward)],
+                _ => [Some(Move::TurnRight), Some(Move::Forward)],
+            },
+
+            (false, true, true) => match self.rng.gen_range(0, 2) {
+                0 => [Some(Move::TurnRight), Some(Move::Forward)],
+                _ => [Some(Move::Forward), None],
+            },
+
+            (true, true, false) => match self.rng.gen_range(0, 2) {
+                0 => [Some(Move::TurnLeft), Some(Move::Forward)],
+                _ => [Some(Move::Forward), None],
+            },
+
+            (false, true, false) => [Some(Move::Forward), None],
+
+            (true, false, false) => [Some(Move::TurnLeft), Some(Move::Forward)],
+
+            (false, false, true) => {
+                [Some(Move::TurnRight), Some(Move::Forward)]
+            }
+
+            (false, false, false) => {
+                [Some(Move::TurnAround), Some(Move::Forward)]
             }
         }
-        let current_cell:Cell = Cell::new(0,0,maze[0][0].weight);
-        let current_direction = CardinalDirection::North;
-        Inteligate{maze, current_cell, current_direction}
+        */
     }
 }
 
-impl Navigate for Inteligate {
-    fn navigate(&mut self, move_options: MoveOptions) -> [Option<Move>; 2] {
-        self.current_cell.weight += 1;
-        let cr = self.current_cell.row;
-        let cc = self.current_cell.col;
-        let current_direction = &self.current_direction;
-        if cr == 8 && cc == 8 {
-            // found center!
-            [None, None]
-        }
-        else {
-            let (forward_cell, left_cell, right_cell, backward_cell): (Cell, Cell, Cell, Cell) = match current_direction {
-                CardinalDirection::North => {
-                    (
-                        self.maze.get(cr+1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc+1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc-1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr-1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        )
-                },
-                CardinalDirection::East => {
-                    (
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc+1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr-1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc-1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        )
-                },
-                CardinalDirection::South => {
-                    (
-                        self.maze.get(cr-1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc-1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc+1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        )
-                },
-                CardinalDirection::West => {
-                    (
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc-1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr-1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+1).map_or(Cell::invalid(), |row| row.get(cc+0).map_or(Cell::invalid(), |cell| cell.clone())),
-                        self.maze.get(cr+0).map_or(Cell::invalid(), |row| row.get(cc+1).map_or(Cell::invalid(), |cell| cell.clone())),
-                        )
-                },
-            };
-
-            let next_move = Cell::best_move(forward_cell, right_cell, backward_cell, left_cell, move_options);
-
-            self.maze[cr][cc].weight = self.current_cell.calc_new_weight(forward_cell, right_cell, left_cell, move_options);
-
-            match next_move {
-                MoveDirection::Forward => {
-                    self.current_cell = forward_cell;
-                    [Some(Move::Forward), None]
-                },
-                MoveDirection::Left => {
-                    self.current_cell = left_cell;
-                    [Some(Move::TurnLeft), Some(Move::Forward)]
-                },
-                MoveDirection::Backward => {
-                    self.current_cell = backward_cell;
-                    [Some(Move::TurnAround), Some(Move::Forward)]
-                },
-                MoveDirection::Right => {
-                    self.current_cell = right_cell;
-                    [Some(Move::TurnRight), Some(Move::Forward)]
-                },
-            }
-        }
-    }
-}
-
-impl Command for Inteligate {
+impl Command for LessRandomNavigate {
     fn keyword_command(&self) -> &str {
         "nav"
     }
-    fn handle_command<'b, I: Iterator<Item = &'b str>>(
+
+    fn handle_command<'a, I: Iterator<Item = &'a str>>(
         &mut self,
         uart: &mut Uart,
         mut args: I,
-        ){
-        match args.next() {
-            Some("~") => {
-                for row in 0..15 {
-                    for col in 0..15{
-                        writeln!(uart, "{0: ^02}", self.maze[row][col].weight).ignore();
-                    }
-                    writeln!(uart, "\n").ignore();
-                }
-            },
-            None => writeln!(uart, "Missing navigate control command!").ignore(),
-            _ => writeln!(uart, "Invalid navigate control command!").ignore(),
+    ) {
+        let command = args.next();
+
+        match command {
+            Some("cells") => {
+                
+            }
+            _ => writeln!(uart, "lrn: unknown command").ignore(),
         }
     }
 }
@@ -221,7 +142,6 @@ impl Command for Inteligate {
 pub struct RandomNavigate {
     rng: SmallRng,
 }
-
 
 impl RandomNavigate {
     pub fn new(seed: [u8; 16]) -> RandomNavigate {
@@ -231,54 +151,59 @@ impl RandomNavigate {
     }
 }
 
-//impl Navigate for RandomNavigate {
-//    fn navigate(&mut self, move_options: MoveOptions) -> [Option<Move>; 2] {
-//        match (move_options.left, move_options.forward, move_options.right) {
-//            (true, true, true) => {
-//                match self.rng.gen_range(0, 3) {
-//                    0 => [Some(Move::TurnLeft), Some(Move::Forward)],
-//                    1 => [Some(Move::TurnRight), Some(Move::Forward)],
-//                    _ => [Some(Move::Forward), None],
-//                }
-//            }
-//
-//            (true, false, true) => {
-//                match self.rng.gen_range(0, 2) {
-//                    0 => [Some(Move::TurnLeft), Some(Move::Forward)],
-//                    _ => [Some(Move::TurnRight), Some(Move::Forward)],
-//                }
-//            }
-//
-//            (false, true, true) => {
-//                match self.rng.gen_range(0, 2) {
-//                    0 => [Some(Move::TurnRight), Some(Move::Forward)],
-//                    _ => [Some(Move::Forward), None],
-//                }
-//            }
-//
-//            (true, true, false) => {
-//                match self.rng.gen_range(0, 2) {
-//                    0 => [Some(Move::TurnLeft), Some(Move::Forward)],
-//                    _ => [Some(Move::Forward), None],
-//                }
-//            }
-//
-//            (false, true, false) => {
-//                [Some(Move::Forward), None]
-//            }
-//
-//            (true, false, false) => {
-//                [Some(Move::TurnLeft), Some(Move::Forward)]
-//            }
-//
-//            (false, false, true) => {
-//                [Some(Move::TurnRight), Some(Move::Forward)]
-//            }
-//
-//            (false, false, false) => {
-//                [Some(Move::TurnAround), Some(Move::Forward)]
-//            }
-//        }
-//    }
-//}
-//
+impl Navigate for RandomNavigate {
+    fn navigate(&mut self, _x: i32, _y: i32, _d: Direction, move_options: MoveOptions) -> [Option<Move>; 2] {
+        match (move_options.left, move_options.forward, move_options.right) {
+            (true, true, true) => match self.rng.gen_range(0, 3) {
+                0 => [Some(Move::TurnLeft), Some(Move::Forward)],
+                1 => [Some(Move::TurnRight), Some(Move::Forward)],
+                _ => [Some(Move::Forward), None],
+            },
+
+            (true, false, true) => match self.rng.gen_range(0, 2) {
+                0 => [Some(Move::TurnLeft), Some(Move::Forward)],
+                _ => [Some(Move::TurnRight), Some(Move::Forward)],
+            },
+
+            (false, true, true) => match self.rng.gen_range(0, 2) {
+                0 => [Some(Move::TurnRight), Some(Move::Forward)],
+                _ => [Some(Move::Forward), None],
+            },
+
+            (true, true, false) => match self.rng.gen_range(0, 2) {
+                0 => [Some(Move::TurnLeft), Some(Move::Forward)],
+                _ => [Some(Move::Forward), None],
+            },
+
+            (false, true, false) => [Some(Move::Forward), None],
+
+            (true, false, false) => [Some(Move::TurnLeft), Some(Move::Forward)],
+
+            (false, false, true) => {
+                [Some(Move::TurnRight), Some(Move::Forward)]
+            }
+
+            (false, false, false) => {
+                [Some(Move::TurnAround), Some(Move::Forward)]
+            }
+        }
+    }
+}
+
+impl Command for RandomNavigate {
+    fn keyword_command(&self) -> &str {
+        "nav"
+    }
+
+    fn handle_command<'a, I: Iterator<Item = &'a str>>(
+        &mut self,
+        uart: &mut Uart,
+        mut args: I,
+    ) {
+        let command = args.next();
+
+        match command {
+            _ => writeln!(uart, "lrn: unknown command").ignore(),
+        }
+    }
+}
