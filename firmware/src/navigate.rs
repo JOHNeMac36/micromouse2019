@@ -1,4 +1,4 @@
-use std::f64;
+use arrayvec::ArrayVec;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use rand::Rng;
@@ -11,7 +11,7 @@ pub trait Navigate {
 }
 
 pub struct Inteligate {
-    maze: [[Cell; 16]; 16],
+    maze: ArrayVec<[ArrayVec<[Cell; 16]>; 16]>,
     current_cell: Cell,
     current_direction: CardinalDirection
 }
@@ -39,6 +39,10 @@ pub enum MoveDirection {
 impl Cell {
     pub fn new(row: usize, col: usize, weight: u16) -> Cell {
         Cell{row, col, weight}
+    }
+
+    pub fn invalid() -> Cell {
+        Cell::new(0xff, 0xff, 0xffff)
     }
 
     pub fn best_move(forward_cell: Cell, left_cell: Cell, right_cell: Cell, backward_cell: Cell, move_options: MoveOptions) -> MoveDirection {
@@ -83,13 +87,28 @@ impl Cell {
     }
 }
 
+pub fn isqrt(num: u16) -> u16 {
+    if num == 0 || num == 1 {
+        num
+    }
+    else {
+        let mut i = 1;
+        let mut result = 1;
+        while (result <= num) {
+            num++;
+            result = num * num;
+        }
+        num - 1
+    }
+
+}
+
 impl Inteligate {
     pub fn new(maze: [[Cell; 16]; 16]) -> Inteligate {
         for row in 0..15 {
             for col in 0..15 {
-                let mut distance: u16 = 0;
-                distance = ((row as f64 - 2.0).powi(2) + (col as f64 - 2.0).powi(2)).sqrt();
-                maze[row][col] = Cell::new(row, col, distance);
+                let distance: u16 = isqrt((row - 4) * (row - 4) + (col - 4) * (col - 4));
+                maze[row][col] = Cell::new(row as usize, col as usize, distance);
             }
         }
         let current_cell:Cell = Cell::new(0,0,maze[0][0].weight);
@@ -101,47 +120,48 @@ impl Inteligate {
 impl Navigate for Inteligate {
     fn navigate(&mut self, move_options: MoveOptions) -> [Option<Move>; 2] {
         self.current_cell.weight += 1;
-        let current_cell = self.current_cell;
+        let cr = self.current_cell.row;
+        let cc = self.current_cell.col;
         let current_direction = self.current_direction;
 
         let (forward_cell, left_cell, right_cell, backward_cell): (Cell, Cell, Cell, Cell) = match current_direction {
             North => {
                 (
-                    self.maze[current_cell.row+1][current_cell.col+0],
-                    self.maze[current_cell.row+0][current_cell.col-1],
-                    self.maze[current_cell.row+0][current_cell.col+1],
-                    self.maze[current_cell.row-1][current_cell.col+0],
+                    match self.maze.get(cr+1).get(cc+0) { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+0][cc-1] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+0][cc+1] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr-1][cc+0] { Some(cell) => cell, None => Cell::invalid()},
                     )
             },
             East => {
                 (
-                    self.maze[current_cell.row+0][current_cell.col+1],
-                    self.maze[current_cell.row+1][current_cell.col+0],
-                    self.maze[current_cell.row-1][current_cell.col+0],
-                    self.maze[current_cell.row+0][current_cell.col-1],
+                    match self.maze[cr+0][cc+1] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+1][cc+0] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr-1][cc+0] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+0][cc-1] { Some(cell) => cell, None => Cell::invalid()},
                     )
             },
             South => {
                 (
-                    self.maze[current_cell.row-1][current_cell.col+0],
-                    self.maze[current_cell.row+0][current_cell.col+1],
-                    self.maze[current_cell.row+0][current_cell.col-1],
-                    self.maze[current_cell.row+1][current_cell.col+0],
+                    match self.maze[cr-1][cc+0] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+0][cc+1] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+0][cc-1] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+1][cc+0] { Some(cell) => cell, None => Cell::invalid()},
                     )
             },
             West => {
                 (
-                    self.maze[current_cell.row+0][current_cell.col-1],
-                    self.maze[current_cell.row-1][current_cell.col+0],
-                    self.maze[current_cell.row+1][current_cell.col+0],
-                    self.maze[current_cell.row+0][current_cell.col+1],
+                    match self.maze[cr+0][cc-1] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr-1][cc+0] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+1][cc+0] { Some(cell) => cell, None => Cell::invalid()},
+                    match self.maze[cr+0][cc+1] { Some(cell) => cell, None => Cell::invalid()},
                     )
             },
         };
 
         let nextMove = Cell::best_move(forward_cell, right_cell, backward_cell, left_cell, move_options);
 
-        self.maze[current_cell.row][current_cell.col].weight = current_cell.calc_new_weight(forward_cell, right_cell, backward_cell, left_cell, move_options);
+        self.maze[cr][cc].weight = self.current_cell.calc_new_weight(forward_cell, right_cell, backward_cell, left_cell, move_options);
 
         match nextMove {
             Forward => {
