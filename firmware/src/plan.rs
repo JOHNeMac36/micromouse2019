@@ -19,6 +19,7 @@ pub enum Move {
     Forward,
 }
 
+#[derive(Copy, Clone)]
 pub struct MoveOptions {
     pub forward: bool,
     pub left: bool,

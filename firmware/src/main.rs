@@ -59,7 +59,7 @@ use crate::control::Control;
 
 use crate::plan::Plan;
 
-use crate::navigate::RandomNavigate;
+use crate::navigate::Inteligate;
 
 // Setup the master clock out
 pub fn mco2_setup(rcc: &stm32f405::RCC, gpioc: &stm32f405::GPIOC) {
@@ -255,7 +255,8 @@ fn main() -> ! {
 
     let control = Control::new(bot);
 
-    let navigate = RandomNavigate::new([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    let navigate = Inteligate::new();
+    // let navigate = RandomNavigate::new([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
 
     let mut plan = Plan::new(control, navigate);
 
@@ -316,8 +317,8 @@ fn main() -> ! {
                     plan.control().bot().left_distance(),
                     plan.control().bot().front_distance(),
                     plan.control().bot().right_distance(),
-                )
-                .ignore();
+                    )
+                        .ignore();
             }
 
             green_led.toggle();
